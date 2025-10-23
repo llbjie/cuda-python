@@ -1,5 +1,5 @@
 from common.helper_cuda import findCudaDevice, checkCudaErrors
-from cuda.bindings import driver, runtime, nvrtc
+from cuda.bindings import driver, runtime
 import sys
 import numpy as np
 from common import common
