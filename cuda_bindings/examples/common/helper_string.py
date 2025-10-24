@@ -35,7 +35,6 @@ def sdkFindFilePath(filename, executable_path):
     
     path = executable_dir + filename
     try:
-        print(os.path.abspath(path))
         with open(path, 'r') as f:
             return path
     except FileNotFoundError:
