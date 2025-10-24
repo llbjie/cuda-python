@@ -6,18 +6,12 @@ from common import common
 import ctypes, time
 from common.helper_string import sdkFindFilePath
 
+
 def convertSmVerToArchName(major: int, minor: int) -> str:
     """
-    根据 GPU 的计算能力版本（主版本和次版本）返回对应的架构名称
-
-    参数:
-        major: 计算能力主版本 (如 8)
-        minor: 计算能力次版本 (如 9)
-
-    返回:
-        架构名称字符串 (如 "Ada")
+    根据 GPU 的计算能力版本返回对应的架构名称
     """
-    smToArch = [
+    sm_arch_map = [
         (0x30, "Kepler"),
         (0x32, "Kepler"),
         (0x35, "Kepler"),
@@ -45,16 +39,16 @@ def convertSmVerToArchName(major: int, minor: int) -> str:
         (-1, "Graphics Device"),
     ]
 
-    combinedVersion = (major << 4) + minor
+    combined_ver = (major << 4) + minor
 
-    for smVersion, archName in smToArch:
-        if smVersion == combinedVersion:
-            return archName
+    for sm_ver, arch_name in sm_arch_map:
+        if sm_ver == combined_ver:
+            return arch_name
 
     return "Graphics Device"
 
 
-incrementKernel = """\
+INCREMENT_KERNEL = """\
 extern "C" __global__ void increment_kernel(int *g_data, int inc_value)
 {
     int idx     = blockIdx.x * blockDim.x + threadIdx.x;
@@ -63,10 +57,11 @@ extern "C" __global__ void increment_kernel(int *g_data, int inc_value)
 """
 
 
-def correctOutput(data: list, n: int, incValue: int) -> bool:
+def verify_output(data: list, n: int, inc_val: int) -> bool:
+    """验证输出数据是否正确"""
     for i in range(n):
-        if data[i] != incValue:
-            print(f"Error! data[{i}] = {data[i]}, ref = {incValue}")
+        if data[i] != inc_val:
+            print(f"Error! data[{i}] = {data[i]}, expected = {inc_val}")
             return False
     return True
 
@@ -89,107 +84,101 @@ def main():
             device,
         )
     )
-
     print(
         f'GPU Device {device}: "{convertSmVerToArchName(major, minor)}" with compute capability {major}.{minor}'
     )
 
-    name = checkCudaErrors(driver.cuDeviceGetName(100, device))
-    print(f"CUDA device  [{name.decode('utf-8').rstrip()}]")
+    device_name = checkCudaErrors(driver.cuDeviceGetName(100, device))
+    print(f"CUDA device  [{device_name.decode('utf-8').rstrip()}]")
 
-    # 通过 .cu 文件保存核函数
-    # kernel_path = sdkFindFilePath("increment_kernel.cu", sys.argv[0])
-    # if kernel_path is None:
-    #   print("The file 'increment_kernel.cu' could not be found in the executable directory")
-    #   sys.exit(1)
-    # with open(kernel_path, 'r') as f:
-    #     increment_kernel = f.read() 
-    # kernelHelper = common.KernelHelper(increment_kernel, device)
-    
-    # 通过字符串的方式
-    # kernelHelper = common.KernelHelper(incrementKernel, device)
+    # 通过字符串的方式创建核函数
+    kernel_helper = common.KernelHelper(INCREMENT_KERNEL, device)
+    kernel_func = kernel_helper.getFunction(b"increment_kernel")
 
-    # 
-    # kernel = kernelHelper.getFunction(b"increment_kernel")
-
-    # 通过.ptx文件的方式获取和函数
-    kernel_path = sdkFindFilePath("increment_kernel.ptx", sys.argv[0])
-    with open(kernel_path, 'rb') as f:
-        ptx_data = f.read()
-    err, module = driver.cuModuleLoadData(ptx_data)
-    err, kernel = driver.cuModuleGetFunction(module, "increment_kernel".encode())
-
+    # 配置参数
     n = 16 * 1024 * 1024
-    numBytes = np.dtype(np.int32).itemsize * n
-    incValue = np.array(26, dtype=np.int32)
+    byte_size = np.dtype(np.int32).itemsize * n
+    inc_val = np.array(26, dtype=np.int32)
 
-    hostPtr = checkCudaErrors(driver.cuMemAllocHost(numBytes))
-    buffer = (ctypes.c_byte * numBytes).from_address(hostPtr)
-    hostArray = np.frombuffer(buffer, dtype=np.int32, count=n)
-    hostArray.fill(0)
+    # 分配主机内存
+    host_ptr = checkCudaErrors(driver.cuMemAllocHost(byte_size))
+    host_buf = (ctypes.c_byte * byte_size).from_address(host_ptr)
+    host_arr = np.frombuffer(host_buf, dtype=np.int32, count=n)
+    host_arr.fill(0)
 
-    devicePtr = checkCudaErrors(driver.cuMemAlloc(numBytes))
-    checkCudaErrors(runtime.cudaMemset(devicePtr, 255, numBytes))
+    # 分配设备内存
+    dev_ptr = checkCudaErrors(driver.cuMemAlloc(byte_size))
+    checkCudaErrors(runtime.cudaMemset(dev_ptr, 255, byte_size))
 
-    numThreads = 512
-    numBlocks = n // numThreads
+    # 配置核函数执行参数
+    block_size = 512
+    grid_size = n // block_size
 
-    startEvent = checkCudaErrors(driver.cuEventCreate(0))
-    stopEvent = checkCudaErrors(driver.cuEventCreate(0))
+    # 创建事件用于计时
+    start_evt = checkCudaErrors(driver.cuEventCreate(0))
+    stop_evt = checkCudaErrors(driver.cuEventCreate(0))
 
-    timeBegin = time.perf_counter()
+    # 开始计时
+    cpu_start = time.perf_counter()
     checkCudaErrors(runtime.cudaDeviceSynchronize())
 
-    gpuTime = 0.0
+    gpu_time = 0.0
     checkCudaErrors(runtime.cudaProfilerStart())
-    runtime.cudaEventRecord(startEvent, 0)
+    runtime.cudaEventRecord(start_evt, 0)
+
+    # 数据传输：主机到设备
     runtime.cudaMemcpyAsync(
-        devicePtr, hostPtr, numBytes, runtime.cudaMemcpyKind.cudaMemcpyHostToDevice, 0
+        dev_ptr, host_ptr, byte_size, runtime.cudaMemcpyKind.cudaMemcpyHostToDevice, 0
     )
 
-    kernelArgs = [np.array([int(devicePtr)], dtype=np.uint64), incValue]
-    kernelArgs = np.array([arg.ctypes.data for arg in kernelArgs], dtype=np.uint64)
+    # 准备核函数参数
+    kernel_args = [np.array([int(dev_ptr)], dtype=np.uint64), inc_val]
+    kernel_args_arr = np.array(
+        [arg.ctypes.data for arg in kernel_args], dtype=np.uint64
+    )
 
+    # 启动核函数
     checkCudaErrors(
         driver.cuLaunchKernel(
-            kernel,
-            numBlocks,
-            1,
-            1,
-            numThreads,
-            1,
-            1,
+            kernel_func,
+            grid_size, 1, 1,
+            block_size, 1, 1,
             0,
             0,
-            kernelArgs.ctypes.data,
+            kernel_args_arr.ctypes.data,
             0,
         )
     )
 
+    # 数据传输：设备到主机
     runtime.cudaMemcpyAsync(
-        hostPtr, devicePtr, numBytes, runtime.cudaMemcpyKind.cudaMemcpyDeviceToHost, 0
+        host_ptr, dev_ptr, byte_size, runtime.cudaMemcpyKind.cudaMemcpyDeviceToHost, 0
     )
-    runtime.cudaEventRecord(stopEvent, 0)
-    timeEnd = time.perf_counter()
+    runtime.cudaEventRecord(stop_evt, 0)
+    cpu_end = time.perf_counter()
     checkCudaErrors(runtime.cudaProfilerStop())
 
-    counter = 0
-    while runtime.cudaEventQuery(stopEvent)[0] == runtime.cudaError_t.cudaErrorNotReady:
-        counter = counter + 1
+    # 等待GPU完成
+    wait_count = 0
+    while runtime.cudaEventQuery(stop_evt)[0] == runtime.cudaError_t.cudaErrorNotReady:
+        wait_count = wait_count + 1
 
-    gpuTime = checkCudaErrors(runtime.cudaEventElapsedTime(startEvent, stopEvent))
-    print(f"time spent executing by the GPU: {gpuTime:.2f}")
-    print(f"time spent by CPU in CUDA calls: {(timeEnd - timeBegin) * 1000:.2f}")
-    print(f"CPU executed {counter} iterations while waiting for GPU to finish")
+    # 计算执行时间
+    gpu_time = checkCudaErrors(runtime.cudaEventElapsedTime(start_evt, stop_evt))
+    print(f"GPU execution time: {gpu_time:.2f} ms")
+    print(f"CPU CUDA call time: {(cpu_end - cpu_start) * 1000:.2f} ms")
+    print(f"CPU wait iterations: {wait_count}")
 
-    result = correctOutput(hostArray, n, incValue)
+    # 验证结果
+    result_ok = verify_output(host_arr, n, inc_val)
 
-    checkCudaErrors(driver.cuMemFreeHost(hostPtr))
-    checkCudaErrors(driver.cuMemFree(devicePtr))
-    checkCudaErrors(driver.cuEventDestroy(startEvent))
-    checkCudaErrors(driver.cuEventDestroy(stopEvent))
+    # 清理资源
+    checkCudaErrors(driver.cuMemFreeHost(host_ptr))
+    checkCudaErrors(driver.cuMemFree(dev_ptr))
+    checkCudaErrors(driver.cuEventDestroy(start_evt))
+    checkCudaErrors(driver.cuEventDestroy(stop_evt))
 
-    sys.exit(result)
+    sys.exit(0 if result_ok else 1)
 
 
 if __name__ == "__main__":
