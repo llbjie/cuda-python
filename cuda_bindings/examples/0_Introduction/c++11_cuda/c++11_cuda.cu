@@ -30,7 +30,7 @@
 #include <thrust/execution_policy.h>
 
 #include <iostream>
-#include <helper_cuda.h>
+// #include <helper_cuda.h>
 
 /////////////////////////////////////////////////////////////////
 // Some utility code to define grid_stride_range
@@ -38,6 +38,7 @@
 // for didactic purposes. Uses
 #include "range.hpp"
 using namespace util::lang;
+
 
 // type alias to simplify typing...
 template <typename T>
@@ -57,6 +58,7 @@ __device__ void count_if(int *count, T *data, int n, Predicate p) {
   }
 }
 
+extern "C" {
 // Use count_if with a lambda function that searches for x, y, z or w
 // Note the use of range-based for loop and initializer_list inside the functor
 // We use auto so we don't have to know the type of the functor or array
@@ -92,3 +94,4 @@ void xyzw_frequency_thrust_host(int *count, char *text, int n)
   });
 }
 #endif
+}
