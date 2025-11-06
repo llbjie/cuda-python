@@ -182,3 +182,5 @@ cython_debug/
 
 # Dont ignore
 !.github/actions/build/
+
+*/.vscode
