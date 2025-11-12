@@ -109,8 +109,6 @@ if __name__ == "__main__":
     tester = BandwidthTester()
     size = 1024 * 1024 * 100  # 100 MB
 
-    print(f"Detected {tester.dev.count} CUDA devices")
-
     bw_d2h = tester.test_device_to_host(size, MemoryMode.PINNED)
     print(f"Device to Host Bandwidth (Pinned): {bw_d2h:.2f} GB/s")
 

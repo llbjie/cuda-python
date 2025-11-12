@@ -55,46 +55,46 @@ import sys
 import time
 if __name__ == "__main__":
 
-  print(f"[{sys.argv[0]}] - Starting...\n")
- 
-  dev = Device()
-  dev.set_current()
-  s = dev.create_stream()
+    print(f"[{sys.argv[0]}] - Starting...\n")
 
-  arch = float(dev.arch)
-  print(f"GPU Device {dev._id}: {convertSmVerToArchName(arch // 10, arch % 10)} with compute capability {arch}")
-  print(f"CUDA device  [{dev.name}]")
+    dev = Device()
+    dev.set_current()
+    s = dev.create_stream()
 
-  prog_options = ProgramOptions(std="c++17", arch=f"sm_{dev.arch}")
-  prog = Program(INCREMENT_KERNEL, code_type="c++", options=prog_options)
-  mod = prog.compile("cubin")
-  kernel = mod.get_kernel("increment_kernel")
+    arch = float(dev.arch)
+    print(f"GPU Device {dev._id}: {convertSmVerToArchName(arch // 10, arch % 10)} with compute capability {arch}")
+    print(f"CUDA device  [{dev.name}]")
 
-  dtype = cp.int32
-  n = 16 << 20 
-  data = cp.zeros(n, dtype=dtype)
-  dev.sync()
+    prog_options = ProgramOptions(std="c++17", arch=f"sm_{dev.arch}")
+    prog = Program(INCREMENT_KERNEL, code_type="c++", options=prog_options)
+    mod = prog.compile("cubin")
+    kernel = mod.get_kernel("increment_kernel")
 
-  block_size = 512
-  grid_size = n // block_size
-  config = LaunchConfig(grid=grid_size, block=block_size)
+    dtype = cp.int32
+    n = 16 << 20 
+    data = cp.zeros(n, dtype=dtype)
+    dev.sync()
 
-  cpu_start = time.perf_counter()
-  gpu_time = 0.0
+    block_size = 512
+    grid_size = n // block_size
+    config = LaunchConfig(grid=grid_size, block=block_size)
 
-  e1 = dev.create_event({"enable_timing": True})
-  e2 = dev.create_event({"enable_timing": True})
-  s.record(e1)
+    cpu_start = time.perf_counter()
+    gpu_time = 0.0
 
-  launch(s, config, kernel, data.data.ptr, 26)
-  cpu_end = time.perf_counter()
+    e1 = dev.create_event({"enable_timing": True})
+    e2 = dev.create_event({"enable_timing": True})
+    s.record(e1)
 
-  s.record(e2)
-  e2.sync()
-  s.sync()
+    launch(s, config, kernel, data.data.ptr, 26)
+    cpu_end = time.perf_counter()
+
+    s.record(e2)
+    e2.sync()
+    s.sync()
 
 
-  print(f"time spent executing by the GPU: {(e2 - e1):.2f} ms")
-  print(f"CPU CUDA call time: {(cpu_end - cpu_start) * 1000:.2f} ms")
+    print(f"time spent executing by the GPU: {(e2 - e1):.2f} ms")
+    print(f"CPU CUDA call time: {(cpu_end - cpu_start) * 1000:.2f} ms")
 
-  assert cp.allclose(data, cp.full(n, 26))
+    assert cp.allclose(data, cp.full(n, 26))
