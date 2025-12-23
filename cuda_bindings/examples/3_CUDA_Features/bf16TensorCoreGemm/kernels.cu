@@ -1,3 +1,10 @@
+#include <cuda.h>
+#include <cuda/pipeline>
+#include <cuda_bf16.h>
+#include <mma.h>
+
+extern "C" {
+
 __global__ void
 compute_bf16gemm(const __nv_bfloat16 *A, const __nv_bfloat16 *B, const float *C, float *D, float alpha, float beta)
 {
@@ -444,4 +451,5 @@ __global__ void simple_wmma_bf16gemm(__nv_bfloat16 *a,
         wmma::store_matrix_sync(d + cCol + cRow * ldc, c_frag, ldc, wmma::mem_row_major);
     }
 #endif
+}
 }
